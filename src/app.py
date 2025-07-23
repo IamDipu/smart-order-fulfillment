@@ -1,50 +1,92 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
-from geopy.distance import geodesic
+import matplotlib.pyplot as plt
 
-st.title("📦 Smart Order Fulfillment Dashboard")
+# Setup page configuration
+st.set_page_config(page_title="Smart Order System", page_icon="📦", layout="centered")
 
-uploaded_orders = st.file_uploader("Upload Orders CSV", type="csv")
-uploaded_warehouses = st.file_uploader("Upload Warehouses CSV", type="csv")
+# Connect to DB
+conn = sqlite3.connect("orders.db", check_same_thread=False)
+cursor = conn.cursor()
 
-if uploaded_orders and uploaded_warehouses:
-    orders = pd.read_csv(uploaded_orders)
-    warehouses = pd.read_csv(uploaded_warehouses)
+# Create table
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer TEXT,
+        product TEXT,
+        quantity INTEGER,
+        priority TEXT
+    )
+""")
+conn.commit()
 
-    assignments = []
+# Title and logo
+st.markdown("<h1 style='text-align: center;'>📦 Smart Order Fulfillment System</h1>", unsafe_allow_html=True)
+st.markdown("### Use the tabs below to Add Orders, View Data, and Analyze Trends.")
 
-    for _, order in orders.iterrows():
-        order_location = (order['latitude'], order['longitude'])
-        suitable_warehouse = None
-        min_distance = float('inf')
+# Tab layout
+tab1, tab2, tab3 = st.tabs(["➕ Add Order", "📋 View Orders", "📈 Analytics"])
 
-        for i, warehouse in warehouses.iterrows():
-            wh_location = (warehouse['latitude'], warehouse['longitude'])
-            distance = geodesic(order_location, wh_location).km
-            if warehouse['stock'] >= order['quantity'] and distance < min_distance:
-                suitable_warehouse = warehouse
-                min_distance = distance
+# --- TAB 1: Add Order ---
+with tab1:
+    st.subheader("➕ Add New Order")
 
-        if suitable_warehouse is not None:
-            assignments.append({
-                "order_id": order['order_id'],
-                "warehouse_id": suitable_warehouse['warehouse_id'],
-                "distance_km": round(min_distance, 2),
-                "status": "Assigned"
-            })
-            warehouses.loc[warehouses['warehouse_id'] == suitable_warehouse['warehouse_id'], 'stock'] -= order['quantity']
-        else:
-            assignments.append({
-                "order_id": order['order_id'],
-                "warehouse_id": None,
-                "distance_km": None,
-                "status": "Unassigned"
-            })
+    with st.form("order_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            customer = st.text_input("👤 Customer Name")
+            quantity = st.number_input("🔢 Quantity", min_value=1, value=1)
+        with col2:
+            product = st.text_input("📦 Product Name")
+            priority = st.selectbox("⚡ Priority Level", ["High", "Medium", "Low"])
 
-    result_df = pd.DataFrame(assignments)
-    st.subheader("Fulfillment Results")
-    st.dataframe(result_df)
+        submitted = st.form_submit_button("✅ Submit Order")
 
-    csv = result_df.to_csv(index=False).encode('utf-8')
-    st.download_button("Download Results CSV", csv, "assignments.csv", "text/csv")
+        if submitted:
+            if customer.strip() == "" or product.strip() == "":
+                st.warning("⚠️ Please fill in all fields.")
+            else:
+                cursor.execute("INSERT INTO orders (customer, product, quantity, priority) VALUES (?, ?, ?, ?)",
+                               (customer, product, quantity, priority))
+                conn.commit()
+                st.toast("Order submitted successfully 🎉")
+                st.success(f"Order for {customer} added!")
+
+# --- TAB 2: View Orders ---
+with tab2:
+    st.subheader("📋 All Orders")
+    df = pd.read_sql_query("SELECT * FROM orders", conn)
+
+    if df.empty:
+        st.info("No orders found. Add some in the 'Add Order' tab.")
+    else:
+        st.dataframe(df.style.highlight_max(axis=0), use_container_width=True)
+
+# --- TAB 3: Analytics ---
+with tab3:
+    st.subheader("📈 Order Analytics")
+
+    df = pd.read_sql_query("SELECT * FROM orders", conn)
+
+    if df.empty:
+        st.warning("No data available for analysis.")
+    else:
+        priority_counts = df["priority"].value_counts()
+
+        st.markdown("#### ⚡ Priority Distribution")
+        fig, ax = plt.subplots()
+        ax.pie(priority_counts, labels=priority_counts.index, autopct='%1.1f%%', startangle=90)
+        ax.axis("equal")
+        st.pyplot(fig)
+
+        st.markdown("#### 📦 Orders by Product")
+        product_counts = df["product"].value_counts()
+        st.bar_chart(product_counts)
+
+        st.markdown("#### 👥 Orders by Customer")
+        customer_counts = df["customer"].value_counts()
+        st.bar_chart(customer_counts)
+
 
