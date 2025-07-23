@@ -1,0 +1,6 @@
+id,city,latitude,longitude,quantity,urgency
+101,Chennai,13.08,80.27,2,High
+102,Lucknow,26.85,80.94,1,Low
+103,Mumbai,19.07,72.87,3,Medium
+104,Pune,18.52,73.85,2,High
+105,Noida,28.54,77.39,4,Medium
